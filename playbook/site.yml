@@ -1,0 +1,125 @@
+---
+- name: Install Clickhouse
+  hosts: clickhouse_yandex
+  become: true
+  tasks:
+    - name: Install dependencies
+      apt:
+        package={{ item }}
+        state=present
+        update_cache=yes
+      with_items:
+        - apt-transport-https
+        - ca-certificates
+        - dirmngr
+      tags: clickhouse
+    - name: Add Clickhouse repository key
+      apt_key:
+        keyserver: keyserver.ubuntu.com
+        id: 8919F6BD2B48D754
+      tags: clickhouse
+    - name: Add Clickhouse repository
+      apt_repository:
+        repo: deb https://packages.clickhouse.com/deb stable main
+        state: present
+        filename: clickhouse
+      tags: clickhouse
+    - name: Install Clickhouse server
+      apt:
+        package={{ item }}
+        state=present
+        update_cache=yes
+      with_items:
+        - clickhouse-server
+        - clickhouse-client
+      tags: clickhouse
+    - name: Upload Clickhouse config
+      copy:
+        src: files/config.xml
+        dest: /etc/clickhouse-server/config.xml
+        mode: 0644
+      tags: clickhouse
+    - name: "Run Clickhouse server"
+      systemd:
+        name: clickhouse-server
+        state: started
+        enabled: true
+      tags: clickhouse
+- name: Install Vector
+  hosts: vector_yandex
+  become: true
+  tasks:
+    - name: Install Vector repository
+      shell: curl -1sLf 'https://repositories.timber.io/public/vector/cfg/setup/bash.deb.sh' | sudo -E bash
+      tags: vector
+    - name: Install Vector
+      apt:
+        package={{ item }}
+        state=present
+        update_cache=yes
+      with_items:
+        - vector
+      tags: vector
+    - name: Upload Vector config
+      template:
+        src: templates/vector.toml.j2
+        dest: /etc/vector/vector.toml
+        mode: 0774
+      tags: vector
+    - name: "Run Vector"
+      systemd:
+        name: vector
+        state: started
+        enabled: true
+      tags: vector
+- name: Install Lighthouse
+  hosts: lighthouse_yandex
+  become: true
+  tasks:
+    - name: Install dependencies
+      apt:
+        package={{ item }}
+        state=present
+        update_cache=yes
+      with_items:
+        - nginx-full
+        - git
+      tags: lighthouse
+    - name: Remove default nginx virtualhost
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /etc/nginx/sites-enabled/default
+        - /etc/nginx/sites-available/default
+        - /etc/nginx/snippets/snakeoil.conf
+      tags: lighthouse
+    - name: Upload Lighthouse virtualhost configs
+      copy:
+        src: files/lighthouse.conf
+        dest: /etc/nginx/sites-available/lighthouse.conf
+        mode: 0664
+      tags: lighthouse
+    - name: Turn on Lighthouse virtualhost
+      file:
+        src: /etc/nginx/sites-available/lighthouse.conf
+        dest: /etc/nginx/sites-enabled/lighthouse.conf
+        state: link
+      tags: lighthouse
+    - name: "Create root directory for Lighthouse"
+      file:
+        path: "/home/web/lighthouse"
+        mode: 0755
+        state: directory
+      tags: lighthouse
+    - name: "Clone Lighthouse from the repository"
+      git:
+        repo: https://github.com/VKCOM/lighthouse.git
+        dest: /home/web/lighthouse
+        version: master
+      tags: lighthouse
+    - name: Nginx restart
+      service:
+        name: nginx
+        state: restarted
+      tags: lighthouse
